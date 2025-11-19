@@ -1,6 +1,6 @@
 <?php
 
-require_once 'Logger.php';
+require_once 'vendor/autoload.php';
 
 use DevLogger\Logger;
 

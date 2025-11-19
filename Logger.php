@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace DevLogger;
 
 use Psr\Log\LoggerInterface;
+use Exception;
+use RuntimeException;
 
 /**
  * Production-ready Logger utility for development use
