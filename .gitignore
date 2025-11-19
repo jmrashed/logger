@@ -1,7 +1,26 @@
-# Ignore all log files
-logs/
-*.log
-*.log.*
-
-# Keep directory structure
+# Logs
+logs/*.log
+logs/*.log.*
 !logs/.gitkeep
+
+# Composer
+/vendor/
+composer.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHPUnit
+.phpunit.result.cache
+/coverage/
+
+# Temporary files
+*.tmp
+*.temp

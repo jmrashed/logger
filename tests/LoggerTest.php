@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 class LoggerTest extends TestCase
 {
     private string $testLogDir;
+    private Logger $logger;
 
     protected function setUp(): void
     {
@@ -20,12 +21,7 @@ class LoggerTest extends TestCase
         if (!is_dir($this->testLogDir)) {
             mkdir($this->testLogDir, 0755, true);
         }
-
-        // Override the log directory for testing
-        $reflection = new \ReflectionClass(Logger::class);
-        $property = $reflection->getProperty('logDirectory');
-        $property->setAccessible(true);
-        $property->setValue($this->testLogDir);
+        $this->logger = new Logger(['logDirectory' => $this->testLogDir]);
     }
 
     protected function tearDown(): void
@@ -44,69 +40,90 @@ class LoggerTest extends TestCase
 
     public function testDebugLog(): void
     {
-        $result = Logger::debug('Test debug message');
-        $this->assertTrue($result);
+        $this->logger->debug('Test debug message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('DEBUG', $logContent);
-        $this->assertStringContains('Test debug message', $logContent);
+        $this->assertStringContainsString('DEBUG', $logContent);
+        $this->assertStringContainsString('Test debug message', $logContent);
     }
 
     public function testInfoLog(): void
     {
-        $result = Logger::info('Test info message');
-        $this->assertTrue($result);
+        $this->logger->info('Test info message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('INFO', $logContent);
-        $this->assertStringContains('Test info message', $logContent);
+        $this->assertStringContainsString('INFO', $logContent);
+        $this->assertStringContainsString('Test info message', $logContent);
     }
 
     public function testWarningLog(): void
     {
-        $result = Logger::warning('Test warning message');
-        $this->assertTrue($result);
+        $this->logger->warning('Test warning message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('WARNING', $logContent);
-        $this->assertStringContains('Test warning message', $logContent);
+        $this->assertStringContainsString('WARNING', $logContent);
+        $this->assertStringContainsString('Test warning message', $logContent);
     }
 
     public function testErrorLog(): void
     {
-        $result = Logger::error('Test error message');
-        $this->assertTrue($result);
+        $this->logger->error('Test error message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('ERROR', $logContent);
-        $this->assertStringContains('Test error message', $logContent);
+        $this->assertStringContainsString('ERROR', $logContent);
+        $this->assertStringContainsString('Test error message', $logContent);
     }
 
     public function testCriticalLog(): void
     {
-        $result = Logger::critical('Test critical message');
-        $this->assertTrue($result);
+        $this->logger->critical('Test critical message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('CRITICAL', $logContent);
-        $this->assertStringContains('Test critical message', $logContent);
+        $this->assertStringContainsString('CRITICAL', $logContent);
+        $this->assertStringContainsString('Test critical message', $logContent);
+    }
+
+    public function testEmergencyLog(): void
+    {
+        $this->logger->emergency('Test emergency message');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('EMERGENCY', $logContent);
+        $this->assertStringContainsString('Test emergency message', $logContent);
+    }
+
+    public function testAlertLog(): void
+    {
+        $this->logger->alert('Test alert message');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('ALERT', $logContent);
+        $this->assertStringContainsString('Test alert message', $logContent);
+    }
+
+    public function testNoticeLog(): void
+    {
+        $this->logger->notice('Test notice message');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('NOTICE', $logContent);
+        $this->assertStringContainsString('Test notice message', $logContent);
     }
 
     public function testLogWithContext(): void
     {
         $context = ['user_id' => 123, 'action' => 'login'];
-        $result = Logger::info('User action', $context);
-        $this->assertTrue($result);
+        $this->logger->info('User action', $context);
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
-        $this->assertStringContains('User action', $logContent);
-        $this->assertStringContains('"user_id":123', $logContent);
-        $this->assertStringContains('"action":"login"', $logContent);
+        $this->assertStringContainsString('User action', $logContent);
+        $this->assertStringContainsString('"user_id":123', $logContent);
+        $this->assertStringContainsString('"action":"login"', $logContent);
     }
 
     public function testLogFormat(): void
     {
-        Logger::info('Test message');
+        $this->logger->info('Test message');
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
         $lines = explode("\n", trim($logContent));
