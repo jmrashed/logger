@@ -88,12 +88,23 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/_Logger/Logger.php';
 
 ```
 _Logger/
-├── Logger.php          # Main logger class
-├── logs/              # Log files directory (git-ignored)
-│   ├── .gitkeep       # Keeps directory in git
-│   └── application.log # Main log file
-├── .gitignore         # Excludes logs from git
-└── README.md          # This file
+├── Logger.php              # Main logger class
+├── example.php             # Usage example
+├── composer.json           # Composer package configuration
+├── phpunit.xml.dist        # PHPUnit configuration
+├── .gitignore              # Git ignore rules
+├── CHANGELOG.md            # Change log
+├── CODE_OF_CONDUCT.md      # Code of conduct
+├── CONTRIBUTING.md         # Contributing guidelines
+├── LICENSE                 # License file
+├── README.md               # This file
+├── SECURITY.md             # Security policy
+├── .github/                # GitHub workflows and templates
+├── docs/                   # Documentation
+│   ├── API.md              # API documentation
+│   └── INSTALL.md          # Installation guide
+└── tests/                  # Test files
+    └── LoggerTest.php      # Unit tests
 ```
 
 ## Configuration
