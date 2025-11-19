@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Comprehensive integration tests for vanilla PHP and Laravel environments
+- Additional test cases for edge cases (large context, special characters, permissions)
+- Cross-platform compatibility improvements
+
+### Changed
+- Fixed example.php to use instance methods instead of static calls
+- Improved test suite with more robust assertions
+
+### Fixed
+- Cross-platform path handling in tests
+- Example code corrections
+
+### Removed
+- N/A
+
+## [1.0.2] - 2025-11-19
+
+### Added
 - Initial release of the Development Logger Library
 - Support for multiple log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 - Automatic log rotation (10MB max, keeps 5 files)
