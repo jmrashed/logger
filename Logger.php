@@ -2,13 +2,19 @@
 
 declare(strict_types=1);
 
+namespace DevLogger;
+
 /**
  * Production-ready Logger utility for development use
- * 
+ *
+ * @author Md Rasheduzzzaman <jmrashed@gmail.com>
+ * @link https://github.com/jmrashed/logger
+ * @license MIT
+ *
  * Usage:
  *   require_once '_Logger/Logger.php';
- *   Logger::info('User logged in', ['user_id' => 123]);
- *   Logger::error('Database connection failed');
+ *   \DevLogger\Logger::info('User logged in', ['user_id' => 123]);
+ *   \DevLogger\Logger::error('Database connection failed');
  */
 class Logger
 {
