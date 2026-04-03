@@ -341,4 +341,187 @@ class LoggerTest extends TestCase
         $this->assertGreaterThanOrEqual($before, $logTime);
         $this->assertLessThanOrEqual($after, $logTime);
     }
+
+    public function testMinLevelFiltering(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir, 'minLevel' => 'WARNING']);
+
+        $logger->debug('Should not appear');
+        $logger->info('Should not appear');
+        $logger->warning('Should appear');
+        $logger->error('Should appear');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringNotContainsString('Should not appear', $logContent);
+        $this->assertStringContainsString('Should appear', $logContent);
+    }
+
+    public function testSetMinLevelMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->setMinLevel('ERROR');
+
+        $logger->debug('Skip');
+        $logger->info('Skip');
+        $logger->error('Log');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringNotContainsString('Skip', $logContent);
+        $this->assertStringContainsString('Log', $logContent);
+    }
+
+    public function testJsonFormat(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir, 'jsonFormat' => true]);
+        $logger->info('JSON test', ['user_id' => 123]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $entry = json_decode($logContent, true);
+
+        $this->assertNotNull($entry);
+        $this->assertEquals('INFO', $entry['level']);
+        $this->assertEquals('JSON test', $entry['message']);
+        $this->assertEquals(123, $entry['context']['user_id']);
+    }
+
+    public function testJsonFormatMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->setJsonFormat(true)->info('Method test');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $entry = json_decode($logContent, true);
+
+        $this->assertNotNull($entry);
+        $this->assertEquals('Method test', $entry['message']);
+    }
+
+    public function testWithNameMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $namedLogger = $logger->withName('channel1');
+
+        $namedLogger->info('Named log');
+
+        $this->assertEquals('channel1', $namedLogger->getName());
+        $this->assertNull($logger->getName());
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('[channel1]', $logContent);
+    }
+
+    public function testWithContextMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $contextLogger = $logger->withContext(['user_id' => 100]);
+
+        $contextLogger->info('With context');
+        $logger->info('Without context');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('"user_id":100', $logContent);
+        $this->assertStringContainsString('With context', $logContent);
+        $this->assertStringContainsString('Without context', $logContent);
+    }
+
+    public function testWithoutContextMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->withContext(['persistent' => 'value']);
+
+        $noContextLogger = $logger->withoutContext();
+        $noContextLogger->info('Clean');
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('Clean', $logContent);
+    }
+
+    public function testReadLogsMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+
+        for ($i = 0; $i < 20; $i++) {
+            $logger->info("Log {$i}");
+        }
+
+        $logs = $logger->readLogs(5);
+        $this->assertCount(5, $logs);
+        $this->assertStringContainsString('Log 19', $logs[0]);
+    }
+
+    public function testReadLogsReverse(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+
+        for ($i = 0; $i < 10; $i++) {
+            $logger->info("Log {$i}");
+        }
+
+        $logs = $logger->readLogs(5, true);
+        $this->assertCount(5, $logs);
+        $this->assertStringContainsString('Log 0', $logs[0]);
+    }
+
+    public function testClearMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info('To be cleared');
+
+        $this->assertTrue($logger->clear());
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertEmpty(trim($logContent));
+    }
+
+    public function testGetLogPathMethod(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $path = $logger->getLogPath();
+
+        $this->assertEquals($this->testLogDir . '/application.log', $path);
+    }
+
+    public function testGetLastError(): void
+    {
+        $logger = new Logger(['logDirectory' => '/nonexistent/path']);
+
+        $this->assertNull($logger->getLastError());
+    }
+
+    public function testLogInjectionPrevention(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info("Test\r\nInjected", ['key' => "value\ninjection"]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringNotContainsString("\r\n", $logContent);
+        $this->assertStringContainsString('Test Injected', $logContent);
+    }
+
+    public function testNullMessageHandling(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info(null);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('null', $logContent);
+    }
+
+    public function testArrayMessageHandling(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info(['key' => 'value']);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('"key":"value"', $logContent);
+    }
+
+    public function testObjectInContext(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info('Object test', ['object' => new \stdClass()]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('"__class"', $logContent);
+    }
 }
