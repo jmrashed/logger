@@ -6,8 +6,7 @@ namespace DevLogger;
 
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use Exception;
-use RuntimeException;
+use DateTimeImmutable;
 
 class Logger implements LoggerInterface
 {
@@ -24,6 +23,8 @@ class Logger implements LoggerInterface
         'EMERGENCY' => 7,
     ];
 
+    private const DEFAULT_TIMESTAMP_FORMAT = 'Y-m-d H:i:s.u';
+
     private string $logDirectory;
     private string $defaultLogFile;
     private int $maxFileSize;
@@ -33,15 +34,66 @@ class Logger implements LoggerInterface
     private ?string $channelName = null;
     private ?string $lastError = null;
     private array $context = [];
+    private ?string $timestampFormat = null;
+    private bool $includeMicroseconds = false;
+
+    private ?int $fileHandle = null;
+    private ?string $lastOpenedPath = null;
 
     public function __construct(array $options = [])
     {
-        $this->logDirectory = $options['logDirectory'] ?? __DIR__ . DIRECTORY_SEPARATOR . 'logs';
-        $this->defaultLogFile = $options['defaultLogFile'] ?? 'application.log';
-        $this->maxFileSize = $options['maxFileSize'] ?? 10485760;
-        $this->maxFiles = $options['maxFiles'] ?? 5;
+        $this->logDirectory = $this->validatePath($options['logDirectory'] ?? __DIR__ . DIRECTORY_SEPARATOR . 'logs');
+        $this->defaultLogFile = $this->validateFileName($options['defaultLogFile'] ?? 'application.log');
+        $this->maxFileSize = $this->validatePositiveInt($options['maxFileSize'] ?? 10485760, 10485760);
+        $this->maxFiles = $this->validatePositiveInt($options['maxFiles'] ?? 5, 5);
         $this->minLevel = $this->parseLogLevel($options['minLevel'] ?? 'DEBUG');
         $this->jsonFormat = $options['jsonFormat'] ?? false;
+        $this->includeMicroseconds = $options['includeMicroseconds'] ?? false;
+        $this->timestampFormat = $options['timestampFormat'] ?? null;
+
+        if (isset($options['maxFileSize']) && $options['maxFileSize'] < 1024) {
+            $this->maxFileSize = 1024;
+        }
+    }
+
+    public function __destruct()
+    {
+        $this->closeFileHandle();
+    }
+
+    private function validatePath(string $path): string
+    {
+        $normalized = rtrim($path, DIRECTORY_SEPARATOR);
+        
+        if (strpos($normalized, '..') !== false) {
+            throw new LoggerException("Path traversal detected: {$path}", 1003);
+        }
+        
+        return $normalized;
+    }
+
+    private function validateFileName(string $filename): string
+    {
+        if (preg_match('/[\x00-\x1F\x7F]/', $filename)) {
+            throw new LoggerException("Invalid filename: {$filename}", 1003);
+        }
+
+        $forbiddenChars = ['/', '\\', "\0"];
+        foreach ($forbiddenChars as $char) {
+            if (strpos($filename, $char) !== false) {
+                throw new LoggerException("Forbidden character in filename: {$filename}", 1003);
+            }
+        }
+
+        return $filename;
+    }
+
+    private function validatePositiveInt(mixed $value, int $default): int
+    {
+        if (!is_int($value) || $value <= 0) {
+            return $default;
+        }
+        return $value;
     }
 
     public function emergency(mixed $message, array $context = []): void
@@ -130,6 +182,12 @@ class Logger implements LoggerInterface
         return $this;
     }
 
+    public function setTimestampFormat(string $format): self
+    {
+        $this->timestampFormat = $format;
+        return $this;
+    }
+
     public function withContext(array $context): self
     {
         $clone = clone $this;
@@ -146,6 +204,10 @@ class Logger implements LoggerInterface
 
     public function withName(string $name): self
     {
+        if (preg_match('/[\r\n\t]/', $name)) {
+            throw new LoggerException("Invalid channel name: contains forbidden characters", 1003);
+        }
+        
         $clone = clone $this;
         $clone->channelName = $name;
         return $clone;
@@ -163,21 +225,31 @@ class Logger implements LoggerInterface
 
     public function clear(): bool
     {
-        $logFile = $this->logDirectory . DIRECTORY_SEPARATOR . $this->defaultLogFile;
+        $logFile = $this->getLogPath();
         if (!file_exists($logFile)) {
             return true;
         }
-        return file_put_contents($logFile, '') !== false;
+        
+        $result = file_put_contents($logFile, '', LOCK_EX);
+        
+        if ($result === false) {
+            $this->lastError = 'Failed to clear log file';
+            return false;
+        }
+        
+        return true;
     }
 
     public function readLogs(int $lines = 100, bool $reverse = false): array
     {
-        $logFile = $this->logDirectory . DIRECTORY_SEPARATOR . $this->defaultLogFile;
+        $logFile = $this->getLogPath();
+        
         if (!file_exists($logFile)) {
             return [];
         }
 
         $content = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        
         if ($content === false) {
             return [];
         }
@@ -194,33 +266,111 @@ class Logger implements LoggerInterface
         return $this->logDirectory . DIRECTORY_SEPARATOR . $this->defaultLogFile;
     }
 
+    public function getLogDirectory(): string
+    {
+        return $this->logDirectory;
+    }
+
+    public function getLogFileName(): string
+    {
+        return $this->defaultLogFile;
+    }
+
+    public function getMaxFileSize(): int
+    {
+        return $this->maxFileSize;
+    }
+
+    public function getMaxFiles(): int
+    {
+        return $this->maxFiles;
+    }
+
+    public function isJsonFormat(): bool
+    {
+        return $this->jsonFormat;
+    }
+
+    public function getMinLevel(): int
+    {
+        return $this->minLevel;
+    }
+
     protected function doLog(string $level, mixed $message, array $context = []): void
     {
         try {
             $this->ensureLogDirectory();
 
-            $logFile = $this->logDirectory . DIRECTORY_SEPARATOR . $this->defaultLogFile;
+            $logFile = $this->getLogPath();
 
-            $this->rotateLogIfNeeded($logFile);
+            if ($this->shouldRotate($logFile)) {
+                $this->rotateLog($logFile);
+            }
 
             $logEntry = $this->jsonFormat 
                 ? $this->formatJsonEntry($level, $message, $context)
                 : $this->formatLogEntry($level, $message, $context);
 
-            $result = file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+            $result = $this->writeToFile($logFile, $logEntry);
 
             if ($result === false) {
                 $this->lastError = 'Failed to write to log file';
             }
 
-        } catch (Exception $e) {
+        } catch (LoggerException $e) {
+            $this->lastError = $e->getMessage();
+        } catch (\Exception $e) {
             $this->lastError = $e->getMessage();
         }
     }
 
+    private function writeToFile(string $path, string $data): int|false
+    {
+        if ($this->fileHandle === null || $this->lastOpenedPath !== $path) {
+            $this->closeFileHandle();
+            
+            $handle = fopen($path, 'a');
+            
+            if ($handle === false) {
+                $this->lastError = "Cannot open file: {$path}";
+                return false;
+            }
+            
+            $this->fileHandle = (int) $handle;
+            $this->lastOpenedPath = $path;
+        }
+
+        if (flock($this->fileHandle, LOCK_EX)) {
+            $result = fwrite($this->fileHandle, $data);
+            flock($this->fileHandle, LOCK_UN);
+            return $result;
+        }
+
+        return file_put_contents($path, $data, FILE_APPEND | LOCK_EX);
+    }
+
+    private function closeFileHandle(): void
+    {
+        if ($this->fileHandle !== null) {
+            fclose($this->fileHandle);
+            $this->fileHandle = null;
+            $this->lastOpenedPath = null;
+        }
+    }
+
+    private function shouldRotate(string $logFile): bool
+    {
+        if (!file_exists($logFile)) {
+            return false;
+        }
+
+        $fileSize = @filesize($logFile);
+        return $fileSize !== false && $fileSize >= $this->maxFileSize;
+    }
+
     protected function formatLogEntry(string $level, mixed $message, array $context): string
     {
-        $timestamp = date('Y-m-d H:i:s');
+        $timestamp = $this->getTimestamp();
         $contextString = !empty($context) ? ' ' . $this->safeJsonEncode($context) : '';
         $channel = $this->channelName ? " [{$this->channelName}]" : '';
 
@@ -230,7 +380,7 @@ class Logger implements LoggerInterface
     protected function formatJsonEntry(string $level, mixed $message, array $context): string
     {
         $entry = [
-            'timestamp' => date('Y-m-d H:i:s'),
+            'timestamp' => $this->getTimestamp(),
             'level' => $level,
             'message' => $message,
             'channel' => $this->channelName,
@@ -238,6 +388,19 @@ class Logger implements LoggerInterface
         ];
 
         return json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+    }
+
+    private function getTimestamp(): string
+    {
+        if ($this->timestampFormat !== null) {
+            return (new DateTimeImmutable())->format($this->timestampFormat);
+        }
+        
+        if ($this->includeMicroseconds) {
+            return (new DateTimeImmutable())->format(self::DEFAULT_TIMESTAMP_FORMAT);
+        }
+        
+        return (new DateTimeImmutable())->format('Y-m-d H:i:s');
     }
 
     protected function sanitizeMessage(mixed $message): string
@@ -283,7 +446,16 @@ class Logger implements LoggerInterface
             return $this->sanitizeContext($value);
         }
         if (is_object($value)) {
-            return ['__class' => get_class($value), '__toString' => method_exists($value, '__toString') ? (string) $value : null];
+            if ($value instanceof \DateTimeInterface) {
+                return $value->format(\DateTimeInterface::ISO8601);
+            }
+            if ($value instanceof \JsonSerializable) {
+                return ['__json' => $value->jsonSerialize()];
+            }
+            return [
+                '__class' => get_class($value),
+                '__toString' => method_exists($value, '__toString') ? (string) $value : null
+            ];
         }
         if (is_resource($value)) {
             return ['__type' => 'resource', '__resource_type' => get_resource_type($value)];
@@ -299,7 +471,7 @@ class Logger implements LoggerInterface
         $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         
         if ($json === false) {
-            return '{"__json_error": "Encoding failed"}';
+            return '{"__json_error": "Encoding failed", "error": "' . json_last_error_msg() . '"}';
         }
         
         return $json;
@@ -309,21 +481,14 @@ class Logger implements LoggerInterface
     {
         if (!is_dir($this->logDirectory)) {
             if (!mkdir($this->logDirectory, 0755, true)) {
-                throw new RuntimeException('Cannot create log directory: ' . $this->logDirectory);
+                throw LoggerException::forDirectoryCreation($this->logDirectory);
             }
         }
     }
 
-    protected function rotateLogIfNeeded(string $logFile): void
+    protected function rotateLog(string $logFile): void
     {
-        if (!file_exists($logFile)) {
-            return;
-        }
-
-        $fileSize = @filesize($logFile);
-        if ($fileSize === false || $fileSize < $this->maxFileSize) {
-            return;
-        }
+        $this->closeFileHandle();
 
         for ($i = $this->maxFiles - 1; $i > 0; $i--) {
             $oldFile = $logFile . '.' . $i;
@@ -331,13 +496,19 @@ class Logger implements LoggerInterface
 
             if (file_exists($oldFile)) {
                 if ($i === $this->maxFiles - 1) {
-                    @unlink($oldFile);
+                    if (!@unlink($oldFile)) {
+                        $this->lastError = "Failed to delete old log file: {$oldFile}";
+                    }
                 } else {
-                    @rename($oldFile, $newFile);
+                    if (!@rename($oldFile, $newFile)) {
+                        $this->lastError = "Failed to rotate log file: {$oldFile} -> {$newFile}";
+                    }
                 }
             }
         }
 
-        @rename($logFile, $logFile . '.1');
+        if (!@rename($logFile, $logFile . '.1')) {
+            throw LoggerException::forRotation($logFile);
+        }
     }
 }

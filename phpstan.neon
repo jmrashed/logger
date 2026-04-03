@@ -1,0 +1,13 @@
+includes:
+    - phpstan.neon.dist
+
+parameters:
+    level: 6
+    paths:
+        - src
+        - Logger.php
+    excludePaths:
+        - vendor
+    treatPhpDocElementsAsNonExisting: false
+    ignoreErrors:
+        - '#Undefined type: Psr\\Log\\#'

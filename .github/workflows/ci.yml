@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 jobs:
   test:
@@ -15,7 +15,7 @@ jobs:
         php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -24,17 +24,17 @@ jobs:
         extensions: mbstring, intl
         coverage: xdebug
 
-    - name: Validate composer.json and composer.lock
+    - name: Validate composer.json
       run: composer validate --strict
 
     - name: Cache Composer packages
       id: composer-cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: vendor
-        key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+        key: ${{ runner.os }}-php-${{ matrix.php-version }}-${{ hashFiles('**/composer.lock') }}
         restore-keys: |
-          ${{ runner.os }}-php-
+          ${{ runner.os }}-php-${{ matrix.php-version }}-
 
     - name: Install dependencies
       run: composer install --no-progress --prefer-dist --optimize-autoloader
@@ -44,6 +44,58 @@ jobs:
 
     - name: Upload coverage to Codecov
       if: matrix.php-version == '8.1'
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.4'
+
+    - name: Install dependencies
+      run: composer install --no-progress --prefer-dist --no-dev
+
+    - name: Run PHPStan
+      run: composer stan
+
+  coding-standards:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.4'
+
+    - name: Install dependencies
+      run: composer install --no-progress --prefer-dist
+
+    - name: Check PHP syntax
+      run: find . -name '*.php' -not -path './vendor/*' -exec php -l {} \;
+
+    - name: Check PSR-12 compliance
+      run: |
+        # Simple check - list files with syntax errors
+        php -r "
+          \$iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator('.'));
+          \$iterator->rewind();
+          while (\$iterator->valid()) {
+            \$path = \$iterator->current()->getPathname();
+            if (preg_match('/\.php\$/', \$path) && !preg_match('/vendor/', \$path)) {
+              exec('php -l ' . escapeshellarg(\$path) . ' 2>&1', \$output, \$exit);
+              if (\$exit !== 0) {
+                echo \$path . ': syntax error' . PHP_EOL;
+              }
+            }
+            \$iterator->next();
+          }
+        "

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DevLogger\Tests;
 
 use DevLogger\Logger;
+use DevLogger\LoggerException;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -523,5 +524,152 @@ class LoggerTest extends TestCase
 
         $logContent = file_get_contents($this->testLogDir . '/application.log');
         $this->assertStringContainsString('"__class"', $logContent);
+    }
+
+    public function testPathTraversalPrevention(): void
+    {
+        $this->expectException(LoggerException::class);
+        new Logger(['logDirectory' => '/var/../../../etc']);
+    }
+
+    public function testInvalidFilenamePrevention(): void
+    {
+        $this->expectException(LoggerException::class);
+        new Logger(['defaultLogFile' => '../application.log']);
+    }
+
+    public function testForbiddenCharInFilename(): void
+    {
+        $this->expectException(LoggerException::class);
+        new Logger(['defaultLogFile' => 'app/log.log']);
+    }
+
+    public function testChannelNameSanitization(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        
+        $this->expectException(LoggerException::class);
+        $logger->withName("channel\nname");
+    }
+
+    public function testCustomTimestampFormat(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->setTimestampFormat('Y-m-d')->info('Test');
+        
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertMatchesRegularExpression('/^\[\d{4}-\d{2}-\d{2}\]/', $logContent);
+    }
+
+    public function testMicrosecondTimestamp(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir, 'includeMicroseconds' => true]);
+        $logger->info('Test');
+        
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertMatchesRegularExpression('/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}\]/', $logContent);
+    }
+
+    public function testGetterMethods(): void
+    {
+        $logger = new Logger([
+            'logDirectory' => '/custom/logs',
+            'defaultLogFile' => 'custom.log',
+            'maxFileSize' => 20485760,
+            'maxFiles' => 10,
+            'minLevel' => 'ERROR',
+            'jsonFormat' => true,
+        ]);
+
+        $this->assertEquals('/custom/logs', $logger->getLogDirectory());
+        $this->assertEquals('custom.log', $logger->getLogFileName());
+        $this->assertEquals(20485760, $logger->getMaxFileSize());
+        $this->assertEquals(10, $logger->getMaxFiles());
+        $this->assertEquals(4, $logger->getMinLevel());
+        $this->assertTrue($logger->isJsonFormat());
+    }
+
+    public function testFileHandleReuse(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        
+        for ($i = 0; $i < 5; $i++) {
+            $logger->info("Log entry {$i}");
+        }
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('Log entry 0', $logContent);
+        $this->assertStringContainsString('Log entry 4', $logContent);
+    }
+
+    public function testClearReturnsFalseOnFailure(): void
+    {
+        $logger = new Logger(['logDirectory' => '/nonexistent']);
+        
+        $result = $logger->clear();
+        $this->assertFalse($result);
+    }
+
+    public function testDateTimeObjectInContext(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info('Test', ['timestamp' => new \DateTime('2024-01-15')]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('2024-01-15', $logContent);
+    }
+
+    public function testJsonSerializableInContext(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        
+        $obj = new class implements \JsonSerializable {
+            public function jsonSerialize(): array
+            {
+                return ['custom' => 'data'];
+            }
+        };
+        
+        $logger->info('Test', ['serializable' => $obj]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('"custom":"data"', $logContent);
+    }
+
+    public function testResourceInContext(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        $logger->info('Test', ['resource' => fopen('php://memory', 'r')]);
+
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('"__type":"resource"', $logContent);
+    }
+
+    public function testNegativeMaxFileSize(): void
+    {
+        $logger = new Logger(['maxFileSize' => -1]);
+        
+        $logger->info('Test');
+        $logContent = file_get_contents($this->testLogDir . '/application.log');
+        $this->assertStringContainsString('Test', $logContent);
+    }
+
+    public function testZeroMaxFiles(): void
+    {
+        $logger = new Logger(['maxFiles' => 0]);
+        
+        $this->assertEquals(5, $logger->getMaxFiles());
+    }
+
+    public function testDefaultOptionsValidation(): void
+    {
+        $logger = new Logger(['logDirectory' => $this->testLogDir]);
+        
+        $this->assertEquals($this->testLogDir, $logger->getLogDirectory());
+        $this->assertEquals('application.log', $logger->getLogFileName());
+        $this->assertEquals(10485760, $logger->getMaxFileSize());
+        $this->assertEquals(5, $logger->getMaxFiles());
+        $this->assertEquals(0, $logger->getMinLevel());
+        $this->assertFalse($logger->isJsonFormat());
     }
 }

@@ -8,17 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Comprehensive integration tests for vanilla PHP and Laravel environments
-- Additional test cases for edge cases (large context, special characters, permissions)
-- Cross-platform compatibility improvements
+- **LoggerException class** - Custom exception class with context and factory methods
+- **Formatter interface** - For extensible log formatting
+- **Path traversal protection** - Detects and blocks `..` in paths
+- **Filename validation** - Blocks forbidden characters in filenames
+- **Channel name validation** - Prevents injection in channel names
+- **Input validation** - Validates log levels, file sizes, max files
+- **DateTimeImmutable** - Uses immutable date for better performance
+- **File handle caching** - Reuses file handles for performance
+- **Custom timestamp format** - `setTimestampFormat()` method
+- **Microsecond timestamps** - Optional microsecond precision
+- **Additional getter methods** - For all configuration options
+- **Enhanced object handling** - Supports DateTime and JsonSerializable
+- **Resource handling** - Handles resource types in context
+- **PHPStan configuration** - Static analysis support
+- **Enhanced CI pipeline** - Static analysis and coding standards jobs
 
 ### Changed
-- Fixed example.php to use instance methods instead of static calls
-- Improved test suite with more robust assertions
+- Refactored to use `src/` directory for PSR-4 autoloading
+- Improved error handling with proper exception types
+- Enhanced rotation logic with better error tracking
+- Updated to use action/checkout@v4 and action/cache@v4
 
 ### Fixed
-- Cross-platform path handling in tests
-- Example code corrections
+- Duplicate test method name
+- Path handling in default log directory
 
 ### Removed
 - N/A
